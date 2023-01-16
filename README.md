@@ -4,6 +4,8 @@ A minimal "fake cloud" of farmOS container instances for testing purposes.
 
 ***Warning: This implementation makes no effort to preserve any data in the managed farmOS containers or otherwise protect you from data loss therein. Please exercise caution and probably only use this for ephemeral test data.***
 
+***Further Warning: This implementation currently exposes the Drupal `admin` user which is probably a security vulnerbility since docker containers generally aren't intended as a full security sandbox and it is likely possible to use that user to run arbitrary code and perform a privilege escallation attack against the host system. As such it is not recommended to expose this service to untrusted users or the public internet at the moment.***
+
 ## What does this do?
 
 Provides a Docker container which has an HTTP api for spinning up and destroying multiple farmOS container instances as subpaths under the same reverse proxy as the HTTP api.
