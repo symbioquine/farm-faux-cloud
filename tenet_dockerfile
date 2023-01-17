@@ -1,0 +1,21 @@
+FROM farmos/farmos:2.0.0
+
+RUN mkdir -p /opt/drupal/keys && chown -R www-data:www-data /opt/drupal/keys && \
+\
+su www-data -s /bin/bash -c 'drush site-install --db-url=sqlite:///opt/drupal/web/sites/default/files/db.sqlite farm farm.modules=all --locale=en --site-name=abc --account-name=admin --account-pass=123' && \
+\
+echo " \
+if (PHP_SAPI === 'cli') {\
+    ini_set('memory_limit', '4096M');\
+}\
+\
+\$settings['reverse_proxy'] = TRUE;\
+\$settings['reverse_proxy_addresses'] = [\$_SERVER['REMOTE_ADDR']];\
+\$settings['reverse_proxy_trusted_headers'] = \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_ALL;\
+\
+\$settings['file_private_path'] = '/opt/drupal/web/sites/default/private/files';\
+\
+" >> /opt/drupal/web/sites/default/settings.php && \
+\
+mkdir -p /opt/drupal/web/sites/default/private/files && \
+chown -R www-data:www-data /opt/drupal

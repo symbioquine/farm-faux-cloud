@@ -51,21 +51,6 @@ async def create_farm_handler(request):
 
         ln -s /opt/drupal/web /opt/drupal/web/{farm_id}
 
-        su www-data -s /bin/bash -c 'drush site-install --db-url=sqlite://localhost/sites/default/files/db.sqlite farm farm.modules='all' --locale=en --site-name={farm_id} --account-name=admin --account-pass={admin_password}'
-
-        echo "
-        if (PHP_SAPI === 'cli') {{
-          ini_set('memory_limit', '4096M');
-        }}
-
-        \$settings['reverse_proxy'] = TRUE;
-        \$settings['reverse_proxy_addresses'] = [\$_SERVER['REMOTE_ADDR']];
-        \$settings['reverse_proxy_trusted_headers'] = \\Symfony\\Component\\HttpFoundation\\Request::HEADER_X_FORWARDED_ALL;
-
-        \$settings['file_private_path'] = '/opt/drupal/web/sites/default/private/files';
-
-        " >> /opt/drupal/web/sites/default/settings.php
-
         echo "<?php
 
           \$sites = [
@@ -74,9 +59,8 @@ async def create_farm_handler(request):
           ];
         " >> /opt/drupal/web/sites/sites.php
 
-        mkdir -p /opt/drupal/web/sites/default/private/files
-
-        chown -R www-data:www-data /opt/drupal
+        drush config-set -y system.site name 'Farm {farm_id}'
+        drush upwd admin '{admin_password}'
 
         curl -s -X POST 'http://{self_container_id}/meta/farm/{farm_id}/ready'
 
@@ -95,9 +79,11 @@ async def create_farm_handler(request):
     sites_volume = docker_client.volumes.create(name=farm_sites_volume_name)
     keys_volume = docker_client.volumes.create(name=farm_keys_volume_name)
 
+    base_img_tag = request.app['base_img_tag']
+
     # TODO: Figure out how to make this play nicer with asyncio (i.e. await instead of blocking however breifly)
     container = docker_client.containers.run(
-        'farmos/farmos:2.0.0',
+        base_img_tag,
         entrypoint="/bin/bash",
         command=["-c", init_command],
         detach=True,
@@ -114,7 +100,6 @@ async def create_farm_handler(request):
 
     request.app['tenets'][farm_id] = tenet
 
-    # TODO: Consider some sort of caching/cloning mechanism to make spinning up instances faster
     await tenet.wait_ready()
 
     cfg = os.path.join("./tenets_nginx_conf.d", "{farm_id}.conf".format(farm_id=farm_id))
@@ -186,6 +171,14 @@ def main():
 
     self_container_id = socket.gethostname()
 
+    # Create a base image so a common installation data can get reused for all tenets
+    base_img_tag = "{self_container_id}-base-img".format(self_container_id=self_container_id)
+    with open('/app/tenet_dockerfile', 'rb') as tenet_dockerfile:
+        img = docker_client.images.build(
+            fileobj=tenet_dockerfile,
+            tag=base_img_tag,
+        )
+
     # Create a private network for ourself and the tenets
     cloud_network_name = "farm-faux-cloud-" + self_container_id
     cloud_network = docker_client.networks.create(cloud_network_name, driver="bridge")
@@ -200,6 +193,7 @@ def main():
     app['docker_client'] = docker_client
     app['cloud_network'] = cloud_network
     app['self_container_id'] = self_container_id
+    app['base_img_tag'] = base_img_tag
     app['tenets'] = {}
 
     try:
