@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -9,6 +10,7 @@ from textwrap import dedent
 import docker
 from aiohttp import web
 
+WHITELISTED_MODULES = (os.environ.get('DRUPAL_MODULE_WHITELIST') or '').split(',')
 
 def execute(cmd, *args, **kwargs):
     return subprocess.check_output(cmd.format(*args, **kwargs), stderr=subprocess.STDOUT, shell=True)
@@ -44,6 +46,27 @@ async def create_farm_handler(request):
 
     farm_container_name = "farm-faux-cloud-tenet-{farm_id}".format(farm_id=farm_id)
 
+    additional_module_installation_block = ''
+    if 'with-module' in request.query:
+      additional_modules = request.query.getall('with-module')
+
+      # Validate all additional modules are in the whitelist environment variable
+      for module_name in additional_modules:
+        if module_name not in WHITELISTED_MODULES:
+          response = {
+            'id': farm_id,
+            'message': 'Module {module_name!r} is not in whitelist'.format(module_name=module_name),
+          }
+
+          return web.Response(status=400, text=json.dumps(response), content_type="application/json")
+
+      additional_module_installation_block = "\n".join(
+        [dedent('''
+        composer require drupal/{module_name}
+        drush en {module_name}
+        '''.format(module_name=module_name)) for module_name in additional_modules]
+      )
+
     init_command = dedent('''
         set -ex
 
@@ -62,6 +85,8 @@ async def create_farm_handler(request):
         drush config-set -y system.site name 'Farm {farm_id}'
         drush upwd admin '{admin_password}'
 
+        {additional_module_installation_block}
+
         curl -s -X POST 'http://{self_container_id}/meta/farm/{farm_id}/ready'
 
         exec docker-entrypoint.sh apache2-foreground
@@ -69,6 +94,7 @@ async def create_farm_handler(request):
         farm_id=farm_id,
         admin_password=admin_password,
         self_container_id=request.app['self_container_id'],
+        additional_module_installation_block=additional_module_installation_block,
     ))
 
     farm_sites_volume_name = "farm-faux-cloud-tenet-vol-sites-{farm_id}".format(farm_id=farm_id)
@@ -100,18 +126,30 @@ async def create_farm_handler(request):
 
     request.app['tenets'][farm_id] = tenet
 
-    await tenet.wait_ready()
+    try:
+      await asyncio.wait_for(tenet.wait_ready(), timeout=30)
+    except asyncio.TimeoutError:
+      response = {
+        'id': farm_id,
+        'message': 'Timeout creating farm instance',
+        'logs': container.logs().decode("utf-8"),
+      }
+
+      return web.Response(status=500, text=json.dumps(response), content_type="application/json")
 
     cfg = os.path.join("./tenets_nginx_conf.d", "{farm_id}.conf".format(farm_id=farm_id))
 
     with open(cfg, 'w') as fp:
         fp.write(dedent('''
     location /{farm_id} {{
-      proxy_pass http://{farm_container_name}:80;
+      proxy_pass                            http://{farm_container_name}:80;
 
-      proxy_set_header Host $host;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header Host                 $host;
+      proxy_set_header X-Real-IP            $remote_addr;
+      proxy_set_header X-Forwarded-For      $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto    $scheme;
+      proxy_set_header X-Forwarded-Protocol $scheme;
+      proxy_set_header X-Forwarded-Host     $http_host;
     }}
         '''.format(
             farm_id=farm_id,
@@ -167,6 +205,8 @@ async def delete_farm_handler(request):
     return web.Response(status=200, text=json.dumps(response), content_type="application/json")
 
 def main():
+    logging.basicConfig(level=logging.DEBUG)
+
     docker_client = docker.from_env()
 
     self_container_id = socket.gethostname()
@@ -195,6 +235,8 @@ def main():
     app['self_container_id'] = self_container_id
     app['base_img_tag'] = base_img_tag
     app['tenets'] = {}
+
+    logging.info("Meta server almost ready...")
 
     try:
         web.run_app(app)

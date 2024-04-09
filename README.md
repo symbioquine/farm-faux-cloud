@@ -15,13 +15,13 @@ Provides a Docker container which has an HTTP api for spinning up and destroying
 We can run the faux cloud via:
 
 ```sh
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock farm-faux-cloud:latest
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -e DRUPAL_MODULE_WHITELIST=farm_fungi farm-faux-cloud:latest
 ```
 
 Then create farmOS instances with an HTTP POST request:
 
 ```sh
-curl -i -X POST "http://localhost/meta/farm"
+curl -i -X POST "http://localhost/meta/farm?with-module=farm_fungi"
 # Returns: {"id": "8df47809", "path": "/8df47809", "username": "admin", "password": "57ab8e1f"}
 ```
 

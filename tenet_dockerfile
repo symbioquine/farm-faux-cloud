@@ -1,4 +1,4 @@
-FROM farmos/farmos:2.0.0
+FROM farmos/farmos:3.1.2
 
 RUN mkdir -p /opt/drupal/keys && chown -R www-data:www-data /opt/drupal/keys && \
 \
@@ -11,7 +11,7 @@ if (PHP_SAPI === 'cli') {\
 \
 \$settings['reverse_proxy'] = TRUE;\
 \$settings['reverse_proxy_addresses'] = [\$_SERVER['REMOTE_ADDR']];\
-\$settings['reverse_proxy_trusted_headers'] = \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_ALL;\
+\$settings['reverse_proxy_trusted_headers'] = \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_FOR | \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_HOST | \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_PORT | \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_PROTO;\
 \
 \$settings['file_private_path'] = '/opt/drupal/web/sites/default/private/files';\
 \

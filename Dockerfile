@@ -10,9 +10,9 @@ RUN rm /etc/nginx/sites-available/default
 
 COPY ./pyproject.toml /app/
 WORKDIR /app
-RUN poetry install --only main
+RUN poetry install --no-root --only main
 COPY . /app
-RUN poetry install --only main
+RUN poetry install --no-root --only main
 
 # By default, Nginx will run a single worker process, setting it to auto
 # will create a worker for each CPU core
